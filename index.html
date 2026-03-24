@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>BioDigitalSim Web</title>
+<style>
+    body { margin:0; background:#05050a; overflow:hidden; }
+    canvas { display:block; }
+    #ui {
+        position:fixed;
+        top:10px;
+        left:10px;
+        color:white;
+        font-family:monospace;
+        background:rgba(0,0,0,0.4);
+        padding:10px;
+        border-radius:8px;
+    }
+</style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<div id="ui"></div>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+let width = window.innerWidth;
+let height = window.innerHeight;
+canvas.width = width;
+canvas.height = height;
+
+// --- State ---
+let currentDim = 8;
+let currentIdx = 0;
+let rotationAngle = 0;
+let colorShift = 0;
+let zoom = 1;
+
+// --- Physics Table (trimmed example, you can paste all) ---
+const physicsTable = [
+    {name:"Pi", value:Math.PI},
+    {name:"Electron g", value:2.0023193},
+    {name:"Planck", value:6.6260701},
+    {name:"Speed of Light", value:299792458}
+];
+
+// --- Data ---
+let vertices = [];
+
+// --- Generate Hypercube ---
+function initHypercube(dim) {
+    vertices = [];
+    let numVertices = 1 << dim;
+
+    for (let i = 0; i < numVertices; i++) {
+        let coords = [];
+        let n = i, count = 0;
+
+        while (n > 0) { n &= (n - 1); count++; }
+
+        for (let j = 0; j < dim; j++) {
+            coords.push((i & (1 << j)) ? 1 : -1);
+        }
+
+        vertices.push({
+            id: i,
+            coords: coords,
+            hammingWeight: count
+        });
+    }
+}
+
+initHypercube(currentDim);
+
+// --- Input ---
+window.addEventListener("keydown", e => {
+    if (e.key === "c") currentIdx = (currentIdx + 1) % physicsTable.length;
+    if (e.key === "x") currentIdx = (currentIdx - 1 + physicsTable.length) % physicsTable.length;
+
+    if (e.key === "d") {
+        currentDim = Math.min(16, currentDim + 1);
+        initHypercube(currentDim);
+    }
+
+    if (e.key === "s") {
+        currentDim = Math.max(1, currentDim - 1);
+        initHypercube(currentDim);
+    }
+});
+
+window.addEventListener("wheel", e => {
+    zoom *= (e.deltaY < 0) ? 1.1 : 0.9;
+});
+
+// Resize
+window.addEventListener("resize", () => {
+    width = window.innerWidth;
+    height = window.innerHeight;
+    canvas.width = width;
+    canvas.height = height;
+});
+
+// --- Main Loop ---
+function loop() {
+    rotationAngle += 0.005;
+    colorShift += 0.003;
+
+    ctx.fillStyle = "rgb(5,5,10)";
+    ctx.fillRect(0, 0, width, height);
+
+    const centerX = width / 2;
+    const centerY = height / 2;
+
+    const baseScale = (Math.min(width, height) / (currentDim + 2.8)) * 1.4 * zoom;
+    const activeWarp = physicsTable[currentIdx].value;
+
+    // Projection
+    let proj = [];
+
+    for (let v of vertices) {
+        let px = 0, py = 0;
+
+        for (let j = 0; j < currentDim; j++) {
+            let angle = (2 * activeWarp * j / currentDim) + rotationAngle;
+            px += v.coords[j] * Math.cos(angle);
+            py += v.coords[j] * Math.sin(angle);
+        }
+
+        proj.push({
+            x: px * baseScale + centerX,
+            y: py * baseScale + centerY
+        });
+    }
+
+    // Draw edges
+    if (currentDim <= 10) {
+        ctx.strokeStyle = "rgba(80,80,120,0.2)";
+        ctx.beginPath();
+
+        for (let v of vertices) {
+            for (let j = 0; j < currentDim; j++) {
+                let neighbor = v.id ^ (1 << j);
+                if (neighbor > v.id) {
+                    ctx.moveTo(proj[v.id].x, proj[v.id].y);
+                    ctx.lineTo(proj[neighbor].x, proj[neighbor].y);
+                }
+            }
+        }
+
+        ctx.stroke();
+    }
+
+    // Draw points
+    for (let i = 0; i < vertices.length; i++) {
+        let v = vertices[i];
+        let t = v.hammingWeight / currentDim;
+
+        let r = 127 * (1 + Math.cos(2 * Math.PI * (t + colorShift)));
+        let g = 127 * (1 + Math.cos(2 * Math.PI * (t + 0.33 + colorShift)));
+        let b = 127 * (1 + Math.cos(2 * Math.PI * (t + 0.66 + colorShift)));
+
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+
+        let size = currentDim > 11 ? 2.5 : 5;
+
+        ctx.fillRect(proj[i].x - size/2, proj[i].y - size/2, size, size);
+    }
+
+    // UI
+    document.getElementById("ui").innerHTML = `
+        DIM: ${currentDim}<br>
+        Constant: ${physicsTable[currentIdx].name}<br>
+        Value: ${physicsTable[currentIdx].value}
+    `;
+
+    requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+
+</body>
+</html>
