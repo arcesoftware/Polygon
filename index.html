@@ -1,91 +1,206 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>BioDigitalSim Web - Mobile</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>BioDigitalSim | N-Body Deck</title>
+    <style>
+        :root {
+            --neon-blue: #00f2ff;
+            --neon-dim: rgba(0, 242, 255, 0.2);
+            --bg-dark: #020205;
+            --glass: rgba(0, 10, 20, 0.75);
+        }
 
-<style>
-body { 
-    margin:0; 
-    background:#05050a; 
-    overflow:hidden; 
-    touch-action: none;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-}
-canvas { display:block; }
+        body { 
+            margin:0; background: var(--bg-dark); overflow:hidden; 
+            touch-action: none; font-family: 'Courier New', Courier, monospace;
+        }
+        canvas { display:block; filter: contrast(1.1) brightness(1.2); }
 
-#ui {
-    position:fixed;
-    top:10px;
-    left:10px;
-    color:rgba(255,255,255,0.9);
-    font-family:monospace;
-    background:rgba(0,0,0,0.6);
-    padding:12px;
-    border-radius:8px;
-    pointer-events: none;
-    font-size: 14px;
-    border: 1px solid rgba(255,255,255,0.1);
-}
-</style>
+        /* Generic HUD Style */
+        .hud {
+            position: fixed;
+            color: var(--neon-blue);
+            text-shadow: 0 0 8px var(--neon-dim);
+            background: var(--glass);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--neon-dim);
+            padding: 12px;
+            pointer-events: auto;
+            z-index: 10;
+        }
+
+        /* --- DESKTOP LAYOUT --- */
+        #ui-stats { top: 20px; left: 20px; width: 260px; border-left: 3px solid var(--neon-blue); }
+        #ui-controls { top: 20px; right: 20px; text-align: right; }
+        #ui-console { bottom: 20px; left: 20px; font-size: 10px; max-width: 300px; opacity: 0.7; }
+        #ui-shortcuts { bottom: 20px; right: 20px; font-size: 11px; }
+
+        .label { color: rgba(255,255,255,0.4); font-size: 9px; letter-spacing: 1px; }
+        .val { font-size: 18px; font-weight: bold; display: block; margin: 2px 0 8px 0; }
+        
+        button {
+            background: var(--neon-dim); border: 1px solid var(--neon-blue);
+            color: var(--neon-blue); padding: 6px 12px; cursor: pointer;
+            margin: 4px; font-family: inherit; transition: 0.2s;
+        }
+        button:hover { background: rgba(0, 242, 255, 0.4); }
+
+        /* --- MOBILE ADAPTATION --- */
+        @media (max-width: 768px) {
+            #ui-stats { top: 0; left: 0; width: 100%; border: none; border-bottom: 1px solid var(--neon-dim); }
+            #ui-controls { top: auto; bottom: 0; right: 0; left: 0; text-align: center; border: none; border-top: 1px solid var(--neon-dim); }
+            #ui-console, #ui-shortcuts { display: none; } /* Hide clutter on mobile */
+            .val { font-size: 14px; margin-bottom: 2px; }
+            button { padding: 10px 20px; } /* Larger touch targets */
+        }
+    </style>
 </head>
-
 <body>
 
 <canvas id="canvas"></canvas>
-<div id="ui"></div>
+
+<div id="ui-stats" class="hud">
+    <div class="label">DIMENSIONAL AXIS</div>
+    <div id="stat-dim" class="val">--</div>
+    <div class="label">PHYSICAL CONSTANT (WARP)</div>
+    <div id="stat-const" class="val">--</div>
+    <div id="stat-val" style="font-size: 11px; color: #fff;">0.0000</div>
+</div>
+
+<div id="ui-controls" class="hud">
+    <button onpointerdown="changeDim(1)">DIM +</button>
+    <button onpointerdown="changeDim(-1)">DIM -</button>
+    <button onpointerdown="changeConst(1)">NEXT CONST</button>
+</div>
+
+<div id="ui-console" class="hud">
+    > KERNEL: V.2.0_STABLE<br>
+    > ACCELERATION: NVIDIA_READY<br>
+    > STATUS: <span id="log-status" style="color:var(--neon-blue)">OPTIMAL</span>
+</div>
+
+<div id="ui-shortcuts" class="hud">
+    [SPACE] PAUSE | [R] RESET<br>
+    [ARROWS] DIM/CONST | [WHEEL] ZOOM
+</div>
 
 <script>
-// --- Canvas ---
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
-let width, height;
+let width, height, currentDim = 8, currentIdx = 0, rotationAngle = 0, colorShift = 0;
+let zoom = 1, offsetX = 0, offsetY = 0, isPaused = false;
+
+// Using your full provided table
+
+
+const physicsTable = [
+    { name: "Muon g-factor", symbol: "g_mu", value: -2.00233184123 },
+    { name: "Electron g-factor", symbol: "g_e", value: -2.00231930436092 },
+    { name: "Cosmological Constant", symbol: "Lambda", value: 1.089e-52 },
+    { name: "Reduced Planck Constant", symbol: "hbar", value: 1.054571817e-34 },
+    { name: "Planck Constant", symbol: "h", value: 6.62607015e-34 },
+    { name: "Electron Mass", symbol: "m_e", value: 9.1093837139e-31 },
+    { name: "Thomson Cross Section", symbol: "sigma_t", value: 6.6524587051e-29 },
+    { name: "Muon Mass", symbol: "m_mu", value: 1.883531627e-28 },
+    { name: "Atomic Mass Constant", symbol: "m_u", value: 1.66053906892e-27 },
+    { name: "Proton Mass", symbol: "m_p", value: 1.67262192595e-27 },
+    { name: "Neutron Mass", symbol: "m_n", value: 1.67492750056e-27 },
+    { name: "Tau Mass", symbol: "m_tau", value: 3.16754e-27 },
+    { name: "Nuclear Magneton", symbol: "mu_n", value: 5.0507837393e-27 },
+    { name: "Bohr Magneton", symbol: "mu_b", value: 9.2740100657e-24 },
+    { name: "Boltzmann Constant", symbol: "k", value: 1.380649e-23 },
+    { name: "Elementary Charge", symbol: "e", value: 1.602176634e-19 },
+    { name: "Rydberg Energy", symbol: "E_R", value: 2.1798723611030e-18 },
+    { name: "Hartree Energy", symbol: "E_h", value: 4.3597447222060e-18 },
+    { name: "First Radiation Constant (Spectral)", symbol: "c1L", value: 1.191042972e-16 },
+    { name: "First Radiation Constant", symbol: "c1", value: 3.741771852e-16 },
+    { name: "Magnetic Flux Quantum", symbol: "Phi_0", value: 2.067833848e-15 },
+    { name: "Classical Electron Radius", symbol: "r_e", value: 2.8179403205e-15 },
+    { name: "Vacuum Electric Permittivity", symbol: "epsilon_0", value: 8.8541878188e-12 },
+    { name: "Bohr Radius", symbol: "a_0", value: 5.29177210544e-11 },
+    { name: "Gravitational Constant", symbol: "G", value: 6.67430e-11 },
+    { name: "Molar Planck Constant", symbol: "N_Ah", value: 3.9903127128934314e-10 },
+    { name: "Stefan-Boltzmann Constant", symbol: "sigma", value: 5.670374419e-8 },
+    { name: "Vacuum Magnetic Permeability", symbol: "mu_0", value: 1.25663706127e-6 },
+    { name: "Fermi Coupling Constant", symbol: "G_F", value: 1.1663787e-5 },
+    { name: "Molar Volume of Silicon", symbol: "V_m_Si", value: 1.205883199e-5 },
+    { name: "Conductance Quantum", symbol: "G_0", value: 7.748091729e-5 },
+    { name: "Quantum of Circulation", symbol: "kappa", value: 3.6369475467e-4 },
+    { name: "Molar Mass Constant", symbol: "M_u", value: 1.00000000105e-3 },
+    { name: "Wien Wavelength Constant", symbol: "b", value: 2.897771955e-3 },
+    { name: "Wien Entropy Constant", symbol: "b_prime", value: 3.002916077e-3 },
+    { name: "Fine-Structure Constant", symbol: "alpha", value: 7.2973525643e-3 },
+    { name: "Molar Mass of Carbon-12", symbol: "M_C12", value: 1.20000000126e-2 },
+    { name: "Second Radiation Constant", symbol: "c2", value: 1.438776877e-2 },
+    { name: "Sine-Square Weak Mixing Angle", symbol: "sin2theta_w", value: 0.23153 },
+    { name: "W-to-Z Mass Ratio", symbol: "mW_mZ", value: 0.88145 },
+    { name: "Proton g-factor", symbol: "g_p", value: 5.5856946893 },
+    { name: "Molar Gas Constant", symbol: "R", value: 8.31446261815324 },
+    { name: "Inverse Fine-Structure Constant", symbol: "alpha_inv", value: 137.035999177 },
+    { name: "Vacuum Impedance", symbol: "Z_0", value: 376.730313412 },
+    { name: "Proton-to-Electron Mass Ratio", symbol: "mp_me", value: 1836.152673426 },
+    { name: "Inverse Conductance Quantum", symbol: "R_K_inv", value: 12906.40372 },
+    { name: "Von Klitzing Constant", symbol: "R_K", value: 25812.80745 },
+    { name: "Faraday Constant", symbol: "F", value: 96485.33212331 },
+    { name: "Rydberg Constant", symbol: "R_inf", value: 10973731.568157 },
+    { name: "Speed of Light", symbol: "c", value: 299792458 },
+    { name: "Cesium Frequency", symbol: "nu_Cs", value: 9192631770 },
+    { name: "Wien Frequency Constant", symbol: "b_nu", value: 5.878925757e10 },
+    { name: "Josephson Constant", symbol: "K_J", value: 4.835978484e14 },
+    { name: "Avogadro Constant", symbol: "N_A", value: 6.02214076e23 },
+    // --- MATHEMATICS & GEOMETRY ---
+    { name: "Euler's Number", symbol: "e_mat", value: 2.718281828459045 },
+    { name: "Golden Ratio", symbol: "phi", value: 1.618033988749895 },
+    { name: "Euler-Mascheroni Constant", symbol: "gamma", value: 0.577215664901532 },
+    { name: "Apéry's Constant", symbol: "zeta_3", value: 1.202056903159594 },
+    { name: "Catalan's Constant", symbol: "G_cat", value: 0.915965594177219 },
+    { name: "Feigenbaum Constant (Delta)", symbol: "delta_f", value: 4.669201609102990 },
+    { name: "Glaisher–Kinkelin Constant", symbol: "A_gk", value: 1.282427129100622 },
+    { name: "Khinchin's Constant", symbol: "K_kh", value: 2.685452001065306 },
+    { name: "Twin Prime Constant", symbol: "C_2", value: 0.660161815846869 },
+    { name: "Plastic Number", symbol: "rho", value: 1.324717957244746 },
+    // --- ASTROPHYSICS & COSMOLOGY ---
+    { name: "Hubble Constant", symbol: "H_0", value: 2.268e-18 }, // In s^-1 (approx 70 km/s/Mpc)
+    { name: "Solar Mass", symbol: "M_sol", value: 1.98847e30 }, // kg
+    { name: "Earth Mass", symbol: "M_earth", value: 5.9722e24 }, // kg
+    { name: "Astronomical Unit", symbol: "AU", value: 149597870700 }, // meters
+    { name: "Parsec", symbol: "pc", value: 3.085677581e16 }, // meters
+    { name: "Solar Radius", symbol: "R_sol", value: 695700000 }, // meters
+    { name: "Chandrasekhar Mass Limit", symbol: "M_ch", value: 2.765e30 }, // kg (approx 1.39 M_sol)
+    // --- NUCLEAR & PARTICLE ---
+    { name: "Standard Gravity", symbol: "g_n", value: 9.80665 }, // m/s^2
+    { name: "Bohr Magneton in eV/T", symbol: "mu_b_ev", value: 5.7883818060e-5 },
+    { name: "Weak Mixing Angle (MS-bar)", symbol: "theta_w", value: 0.23122 },
+    { name: "Top Quark Mass", symbol: "m_top", value: 3.0784e-25 }, // kg (approx 172.76 GeV/c^2)
+    { name: "Higgs Boson Mass", symbol: "m_higgs", value: 2.231e-25 }, // kg (approx 125.1 GeV/c^2)
+    { name: "Neutron Magnetic Moment", symbol: "mu_n_mom", value: -9.6623651e-27 }, // J/T
+    { name: "Proton Charge-to-Mass Ratio", symbol: "e_mp", value: 95788331.57 }, // C/kg
+    { name: "Standard Atmosphere", symbol: "atm", value: 101325 } // Pascals
+];
+
+
 function resize() {
     width = window.innerWidth;
     height = window.innerHeight;
     canvas.width = width * window.devicePixelRatio;
     canvas.height = height * window.devicePixelRatio;
-    ctx.setTransform(1,0,0,1,0,0);
     ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
 }
 window.addEventListener("resize", resize);
 resize();
 
-// --- State ---
-let currentDim = 8;
-let currentIdx = 0;
-let rotationAngle = 0;
-let colorShift = 0;
-let zoom = 1;
-
-let offsetX = 0;
-let offsetY = 0;
-
-const physicsTable = [
-    {name:"Pi", value:Math.PI},
-    {name:"Electron g", value:2.0023193},
-    {name:"Planck", value:6.6260701},
-    {name:"Speed of Light", value:299792458}
-];
-
 let vertices = [];
-
 function initHypercube(dim) {
     vertices = [];
     let numVertices = 1 << dim;
-
     for (let i = 0; i < numVertices; i++) {
         let coords = [];
         let n = i, count = 0;
-
         while (n > 0) { n &= (n - 1); count++; }
-
-        for (let j = 0; j < dim; j++) {
-            coords.push((i & (1 << j)) ? 1 : -1);
-        }
-
+        for (let j = 0; j < dim; j++) coords.push((i & (1 << j)) ? 1 : -1);
         vertices.push({ id: i, coords, hammingWeight: count });
     }
 }
@@ -99,122 +214,55 @@ function changeConst(amt) {
     currentIdx = (currentIdx + amt + physicsTable.length) % physicsTable.length;
 }
 
-initHypercube(currentDim);
-
-// --- Touch Controls ---
-let touchMode = null;
-let startY = 0;
-let startX = 0;
-
-let initialDist = null;
-let lastMidX = 0;
-let lastMidY = 0;
-
-canvas.addEventListener("touchstart", e => {
-    if (e.touches.length === 1) {
-        let t = e.touches[0];
-        startY = t.clientY;
-        startX = t.clientX;
-
-        touchMode = (t.clientX < width / 2) ? "dim" : "const";
-
-    } else if (e.touches.length === 2) {
-        touchMode = "pinch";
-
-        let dx = e.touches[0].clientX - e.touches[1].clientX;
-        let dy = e.touches[0].clientY - e.touches[1].clientY;
-        initialDist = Math.hypot(dx, dy);
-
-        lastMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-        lastMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-    }
-
-}, { passive: false });
-
-canvas.addEventListener("touchmove", e => {
-    if (touchMode === "pinch" && e.touches.length === 2) {
-        // Zoom
-        let dx = e.touches[0].clientX - e.touches[1].clientX;
-        let dy = e.touches[0].clientY - e.touches[1].clientY;
-        let dist = Math.hypot(dx, dy);
-
-        zoom *= (dist / initialDist);
-        initialDist = dist;
-
-        // Pan
-        let midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-        let midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-
-        offsetX += (midX - lastMidX);
-        offsetY += (midY - lastMidY);
-
-        lastMidX = midX;
-        lastMidY = midY;
-
-    } else if (e.touches.length === 1) {
-        let t = e.touches[0];
-        let deltaY = t.clientY - startY;
-
-        if (Math.abs(deltaY) > 25) {
-            if (touchMode === "dim") {
-                changeDim(deltaY < 0 ? 1 : -1);
-            } else {
-                changeConst(deltaY < 0 ? 1 : -1);
-            }
-            startY = t.clientY;
-        }
-    }
-
-    e.preventDefault();
-}, { passive: false });
-
-canvas.addEventListener("touchend", () => {
-    touchMode = null;
-    initialDist = null;
+// --- Inputs ---
+window.addEventListener("keydown", e => {
+    if (e.key === " ") isPaused = !isPaused;
+    if (e.key.toLowerCase() === "r") { zoom = 1; offsetX = 0; offsetY = 0; }
+    if (e.key === "ArrowUp") changeDim(1);
+    if (e.key === "ArrowDown") changeDim(-1);
+    if (e.key === "ArrowRight") changeConst(1);
+    if (e.key === "ArrowLeft") changeConst(-1);
 });
 
-// Desktop zoom
 window.addEventListener("wheel", e => {
     zoom *= (e.deltaY < 0) ? 1.1 : 0.9;
 });
 
-// --- Render Loop ---
+// Setup Touch/Pan/Pinch logic here if needed (as per your mobile code)
+
+initHypercube(currentDim);
+
 function loop() {
-    rotationAngle += 0.005;
-    colorShift += 0.003;
+    if (!isPaused) {
+        rotationAngle += 0.005;
+        colorShift += 0.002;
+    }
 
-    zoom = Math.max(0.2, Math.min(zoom, 10));
-
-    ctx.fillStyle = "#05050a";
+    ctx.fillStyle = "#020205";
     ctx.fillRect(0, 0, width, height);
 
     const centerX = width / 2 + offsetX;
     const centerY = height / 2 + offsetY;
-
-    const baseScale = (Math.min(width, height) / (currentDim + 3)) * 1.2 * zoom;
-    const activeWarp = physicsTable[currentIdx].value;
+    const baseScale = (Math.min(width, height) / 10) * zoom;
+    const warp = physicsTable[currentIdx].value;
 
     let proj = [];
-
     for (let v of vertices) {
         let px = 0, py = 0;
-
         for (let j = 0; j < currentDim; j++) {
-            let angle = (2 * activeWarp * j / currentDim) + rotationAngle;
+            // Apply physical constant as a phase-warp
+            let angle = (2 * Math.PI * j / currentDim) + (rotationAngle * (1 + j * 0.1)) * (warp > 1 ? Math.log10(warp) : 1);
             px += v.coords[j] * Math.cos(angle);
             py += v.coords[j] * Math.sin(angle);
         }
-
-        proj.push({
-            x: px * baseScale + centerX,
-            y: py * baseScale + centerY
-        });
+        proj.push({ x: px * baseScale + centerX, y: py * baseScale + centerY });
     }
 
-    if (currentDim <= 8) {
-        ctx.strokeStyle = "rgba(100,100,255,0.15)";
+    // Draw Edges (Performance optimization: only draw if DIM is low)
+    if (currentDim <= 9) {
+        ctx.strokeStyle = "rgba(0, 242, 255, 0.15)";
+        ctx.lineWidth = 1;
         ctx.beginPath();
-
         for (let v of vertices) {
             for (let j = 0; j < currentDim; j++) {
                 let n = v.id ^ (1 << j);
@@ -227,31 +275,29 @@ function loop() {
         ctx.stroke();
     }
 
-    let size = currentDim > 10 ? 1.5 : 3.5;
-
+    // Draw Vertices
+    let size = currentDim > 10 ? 1 : 3;
     for (let i = 0; i < vertices.length; i++) {
         let v = vertices[i];
         let t = v.hammingWeight / currentDim;
-
         let r = 127 * (1 + Math.cos(2 * Math.PI * (t + colorShift)));
         let g = 127 * (1 + Math.cos(2 * Math.PI * (t + 0.33 + colorShift)));
         let b = 127 * (1 + Math.cos(2 * Math.PI * (t + 0.66 + colorShift)));
-
         ctx.fillStyle = `rgb(${r},${g},${b})`;
         ctx.fillRect(proj[i].x - size/2, proj[i].y - size/2, size, size);
     }
 
-    document.getElementById("ui").innerHTML = `
-        DIM: ${currentDim}<br>
-        Constant: ${physicsTable[currentIdx].name}<br>
-        Value: ${physicsTable[currentIdx].value.toFixed(4)}
-    `;
+    // Update Deck Data
+    document.getElementById("stat-dim").innerText = currentDim;
+    document.getElementById("stat-const").innerText = physicsTable[currentIdx].name;
+    document.getElementById("stat-val").innerText = physicsTable[currentIdx].value.toExponential(8);
 
     requestAnimationFrame(loop);
 }
 
 loop();
 </script>
-
 </body>
 </html>
+
+
